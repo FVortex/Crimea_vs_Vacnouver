@@ -1,0 +1,588 @@
+---
+title: "Dimensionality reduction for distance object describing settlement networks"
+author: "Mikhail Orlov"
+date: '6 ноября 2017 г '
+output:
+  html_document: default
+pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Clearance to remove possible objects etc. from previous session to avoid interference
+Package loading
+```{r}
+rm(list = ls())
+
+#load packages: raster, rgdal, foreach, etc.
+library(rgdal)
+library(raster)
+library(foreach) #used in the initial script that I used
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+library(factoextra)
+library(FactoMineR)
+library(corrplot)
+library(maps)
+#library(mapdata)
+library(dendextend)
+
+library(cluster)
+library(caret)
+#library(maxnet) #Maxent implemented in the Maxent package as well;
+#But this one doesn't require additional java script and evaluated entirely in R 
+#Essentially this implementation is based on glmnet algorithm
+```
+
+Loading previously saved bioclimate data on both Crimea and Vancouver island
+```{r}
+
+load('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/climate_crimea.rda')
+load('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/climate_vancouver.rda')
+
+```
+
+
+To determine region of interest
+
+```{r}
+
+crimea <- map(ylim=c(44.3, 46), xlim=c(32.5,36.6), col='gray90', fill=TRUE)
+
+#boundaries for which background data will be extracted
+crimea_x_lims <- c(32.5, 36.6) 
+crimea_y_lims <- c(44.4, 46)
+
+abline(v = crimea_x_lims)
+abline(h = crimea_y_lims)
+
+```
+
+Creating table of latitude and longitude for locations of interest
+
+```{r}
+
+Latitude_crimea <- seq(from = crimea_y_lims[1], to = crimea_y_lims[2], by = 0.062) #approx 2'
+Longitude_crimea <- seq(from = crimea_x_lims[1], to = crimea_x_lims[2], by = 0.062) #approx 2'
+lat_long_crimea <- expand.grid(Latitude = Latitude_crimea, Longitude = Longitude_crimea) #making pairs of latitude and longitude
+Pop_crimea <- as.factor(1:nrow(lat_long_crimea)) #populations ids
+pop_crimea <- cbind(lat_long_crimea, Pop_crimea) #adding Ids
+row.names(pop_crimea) <- pop_crimea$Pop
+#head(pop)
+
+###NOTE: WorldClim data, even at highest res, is averaged over 1 km2.
+#If your location is too close to a coast (i.e. less than 1 km2),
+#there will not be any information (nothing but NAs) in this data set.
+#Therefore, it may be necessary to approximate some locations by moving
+#them inland. I did this using Google Earth.
+
+#load location coordinates as SpatialPoints
+for(i in pop_crimea$Pop){
+  assign(i, SpatialPoints(as.matrix(t(c(pop_crimea[i,2], pop_crimea[i,1])))))
+}
+
+#check that SpatialPoints load correctly from geoTIFFs
+poplist_crimea <- mget(levels(pop_crimea$Pop), envir=globalenv())
+
+tiffvector <- unlist(list)
+
+#Optional quality check step. For smaller datasets, will tell you which population locations should be adjusted,
+#in other words, which rows are all NA. See Note above, line 51. Or check after extracting data, see line 
+#foreach(p=poplist, .combine='rbind') %:%
+# foreach(t=tiffvector, .combine='cbind') %do%{
+#  is.na(extract(t,p))
+#} #may take a while
+
+```
+
+Make climate data table
+
+```{r}
+# # # is a plug 
+
+# # #climate_crimea <- foreach(p=poplist_crimea, .combine='rbind') %:%
+# # #    foreach(t=tiffvector, .combine='cbind') %do%{
+# # #      myValue<-extract(t, p)
+# # #        } #may take a while
+
+# # #save(climate, file = 'climate_complete_crimea_for_Orlov_Sheludkov.rda')
+```
+
+
+#Case region I - Crimea peninsula
+##To determine region of interest
+```{r}
+
+crimea <- map(ylim=c(44.3, 46), xlim=c(32.5,36.6), col='gray90', fill=TRUE)  
+
+#boundaries for which background data will be extracted
+crimea_x_lims <- c(32.5, 36.6) 
+crimea_y_lims <- c(44.4, 46)
+
+abline(v = crimea_x_lims)
+abline(h = crimea_y_lims)
+
+#generating the set of coordinates that spans all the plotting areas 
+
+#creating table of latitude and longitude for locations of interest
+Latitude_crimea <- seq(from = crimea_y_lims[1], to = crimea_y_lims[2], by = 0.062) #approx 2'
+Longitude_crimea <- seq(from = crimea_x_lims[1], to = crimea_x_lims[2], by = 0.062) #approx 2'
+lat_long_crimea <- expand.grid(Latitude = Latitude_crimea, Longitude = Longitude_crimea) #making pairs of latitude and longitude
+
+#points(x = lat_long_crimea$Longitude, y = lat_long_crimea$Latitude, pch = 2)
+
+###Extract climate data from WorldClim.org tiles for several locations and make data table
+```
+
+Download and unzip all relevant WorldClim geoTIFF files into a single directory.
+```{r}
+setwd('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/')
+#check the folder content
+dir()
+```
+
+
+Read names of all .tif (geotif) files in directory into a list
+#taken from http://stackoverflow.com/questions/5319839/read-multiple-csv-files-into-separate-data-frames
+
+```{r}
+filenames <- grep('*.tif', list.files(), value = T)
+
+#Load all geoTIFF files
+for(i in filenames){
+  filepath <- file.path(i)
+  assign(i, raster(filepath))
+}
+
+#check that all files loaded properly by raster
+#taken from http://stackoverflow.com/questions/15387727/use-object-names-as-list-names-in-r
+list <- mget(filenames, envir=globalenv())
+
+for(i in list){
+  if (hasValues(i)==FALSE){
+    print(i,"hasValues error")
+  }
+  if (inMemory(i)==TRUE){
+    print(i, "inMemory error")
+  }
+  else{
+    print("All checked out!")
+  }
+}
+
+#Vacouver island data extraction
+Pop_crimea <- as.factor((1:nrow(lat_long_crimea))) #populations ids
+pop_crimea <- cbind(lat_long_crimea, Pop_crimea) #adding Ids
+row.names(pop_crimea) <- pop_crimea$Pop
+#head(pop_crimea)
+
+###NOTE: WorldClim data, even at highest res, is averaged over 1 km2.
+#If your location is too close to a coast (i.e. less than 1 km2),
+#there will not be any information (nothing but NAs) in this data set.
+#Therefore, it may be necessary to approximate some locations by moving
+#them inland. I did this using Google Earth.
+
+#load location coordinates as SpatialPoints
+for(i in pop_crimea$Pop){
+  assign(i, SpatialPoints(as.matrix(t(c(pop_crimea[i,2], pop_crimea[i,1])))))
+}
+
+#check that SpatialPoints load correctly from geoTIFFs
+poplist_crimea <- mget(levels(pop_crimea$Pop), envir=globalenv())
+
+tiffvector <- unlist(list)
+
+#Optional quality check step. For smaller datasets, will tell you which population locations should be adjusted,
+#in other words, which rows are all NA. See Note above, line 51. Or check after extracting data, see line 
+#foreach(p=poplist, .combine='rbind') %:%
+# foreach(t=tiffvector, .combine='cbind') %do%{
+#  is.na(extract(t,p))
+#} #may take a while
+```
+
+###make climate data table
+```{r}
+
+# # # is a plug 
+
+# # #climate <- foreach(p=poplist, .combine='rbind') %:%
+# # #  foreach(t=tiffvector, .combine='cbind') %do%{
+# # #    myValue<-extract(t, p)
+# # #    } #may take a while
+
+# # #save(climate, file = 'climate_complete_crimea_for_Orlov_Sheludkov.rda')
+load('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/climate_crimea.rda')
+```
+
+#Case region II - Vancouver island
+##To determine region of interest
+```{r}
+
+#boundaries for which background data will be extracted
+vancouver_x_lims <- c(-129, -123) 
+vancouver_y_lims <- c(48, 51)
+
+vancouver <- map(ylim=vancouver_y_lims, xlim=vancouver_x_lims, col='gray90', fill=TRUE)  
+
+#building polygon by vertices
+xs <- min(vancouver_x_lims) + c(5.6, 5.5, 5.1, 3.9, 3.5, 2.2, 0.5, 0.8, 3.4, 5.4, 5.8)
+ys <- min(vancouver_y_lims) + c(0.7, 0.7, 1.2, 1.95, 2.35, 2.6, 3, 1.9, 0.8, 0.2, 0.5)
+
+for (i in seq_along(xs)){
+  points(x = xs[i], y = ys[i], pch = 10)
+}
+#adding the polygon to define the area for which data will be extracted
+polygon(x = xs, y = ys, col = 'grey90')
+
+#generating the set of coordinates that spans all the plotting areas 
+
+#creating table of latitude and longitude for locations of interest
+Latitude_vancouver <- seq(from = vancouver_y_lims[1], to = vancouver_y_lims[2], by = 0.062) #approx 2'
+Longitude_vancouver <- seq(from = vancouver_x_lims[1], to = vancouver_x_lims[2], by = 0.062) #approx 2'
+lat_long_vancouver <- expand.grid(Latitude = Latitude_vancouver, Longitude = Longitude_vancouver) #making pairs of latitude and longitude
+
+#points(x = lat_long_vancouver$Longitude, y = lat_long_vancouver$Latitude, pch = 2)
+
+abline(v = vancouver_y_lims)
+abline(h = vancouver_x_lims)
+```
+
+
+Which of these fall within the polygon?
+Data for Vancouver hold points outside the island; those needs to be deleted
+```{r}
+
+inds <- which(point.in.polygon(point.x = lat_long_vancouver$Longitude, point.y = lat_long_vancouver$Latitude, pol.x = xs, pol.y = ys)==1)
+
+coords_in_polygons <- lat_long_vancouver[inds, ]
+
+climate_vancouver_island_only <- climate[inds,]
+
+
+#View(climate_vancouver_island_only)
+```
+
+Extract climate data from WorldClim.org tiles for several locations and make data table.
+Ddownload and unzip all relevant WorldClim geoTIFF files into a single directory.
+
+```{r}
+
+setwd('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/')
+#check the folder content
+dir()
+
+
+#Read names of all .tif (geotif) files in directory into a list
+#taken from http://stackoverflow.com/questions/5319839/read-multiple-csv-files-into-separate-data-frames
+filenames <- grep('*.tif', list.files(), value = T)
+
+#Load all geoTIFF files
+for(i in filenames){
+  filepath <- file.path(i)
+  assign(i, raster(filepath))
+}
+
+#check that all files loaded properly by raster
+#taken from http://stackoverflow.com/questions/15387727/use-object-names-as-list-names-in-r
+list <- mget(filenames, envir=globalenv())
+
+for(i in list){
+  if (hasValues(i)==FALSE){
+    print(i,"hasValues error")
+  }
+  if (inMemory(i)==TRUE){
+    print(i, "inMemory error")
+  }
+  else{
+    print("All checked out!")
+  }
+}
+
+#Vacouver island data extraction
+Pop_vancouver <- as.factor((1:nrow(lat_long_vancouver))[inds]) #populations ids
+pop_vancouver <- cbind(lat_long_vancouver[inds,], Pop_vancouver) #adding Ids
+row.names(pop_vancouver) <- pop_vancouver$Pop
+#head(pop_vancouver)
+
+###NOTE: WorldClim data, even at highest res, is averaged over 1 km2.
+#If your location is too close to a coast (i.e. less than 1 km2),
+#there will not be any information (nothing but NAs) in this data set.
+#Therefore, it may be necessary to approximate some locations by moving
+#them inland. I did this using Google Earth.
+
+#load location coordinates as SpatialPoints
+for(i in pop_vancouver$Pop){
+  assign(i, SpatialPoints(as.matrix(t(c(pop_vancouver[i,2], pop_vancouver[i,1])))))
+}
+
+#check that SpatialPoints load correctly from geoTIFFs
+poplist_vancouver <- mget(levels(pop_vancouver$Pop), envir=globalenv())
+
+tiffvector <- unlist(list)
+
+#Optional quality check step. For smaller datasets, will tell you which population locations should be adjusted,
+#in other words, which rows are all NA. See Note above, line 51. Or check after extracting data, see line 
+#foreach(p=poplist, .combine='rbind') %:%
+# foreach(t=tiffvector, .combine='cbind') %do%{
+#  is.na(extract(t,p))
+#} #may take a while
+
+```
+
+
+###make climate data table
+```{r}
+
+# # # is a plug 
+
+# # #climate <- foreach(p=poplist, .combine='rbind') %:%
+# # #  foreach(t=tiffvector, .combine='cbind') %do%{
+# # #    myValue<-extract(t, p)
+# # #    } #may take a while
+
+# # #save(climate, file = 'climate_complete_crimea_for_Orlov_Sheludkov.rda')
+
+
+#tidying table
+popnames_crimea <- sort(as.character(pop_crimea$Pop))
+clim_crimea <- as.data.frame(climate_crimea, row.names=popnames_crimea)
+
+#check for NAs
+movepops_crimea <- clim_crimea[rowSums(is.na(clim_crimea)) == ncol(clim_crimea),] #from the initial script from the Internet
+#or
+table(complete.cases(clim_crimea))['TRUE'] #rows that are not NAs
+
+head(clim_crimea)
+# # #View(clim)
+#how many points there are in total
+unique(lapply(clim_crimea, length))
+
+#matrix to data frame transformation; probably there's a better way
+res_crimea <- c()
+for (i in clim_crimea) {
+  res_crimea <- cbind(res_crimea, i)
+}
+
+#setting bioclimatic variable names
+raw <- 'BIO1 = Annual Mean Temperature, BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp)), BIO3 = Isothermality (BIO2/BIO7) (* 100), BIO4 = Temperature Seasonality (standard deviation *100), BIO5 = Max Temperature of Warmest Month, BIO6 = Min Temperature of Coldest Month, BIO7 = Temperature Annual Range (BIO5-BIO6), BIO8 = Mean Temperature of Wettest Quarter, BIO9 = Mean Temperature of Driest Quarter, BIO10 = Mean Temperature of Warmest Quarter, BIO11 = Mean Temperature of Coldest Quarter, BIO12 = Annual Precipitation, BIO13 = Precipitation of Wettest Month, BIO14 = Precipitation of Driest Month, BIO15 = Precipitation Seasonality (Coefficient of Variation), BIO16 = Precipitation of Wettest Quarter, BIO17 = Precipitation of Driest Quarter, BIO18 = Precipitation of Warmest Quarter, BIO19 = Precipitation of Coldest Quarter'
+#raw1 <- gsub('BIO.*? = ', '', raw)
+bioclim_vars <- unlist(strsplit(raw, split = ', '))
+bioclim_vars <- substr(bioclim_vars, start = 8, 100)
+
+#to restore order
+rownames(res_crimea) <- as.numeric(popnames_crimea)
+res_crimea <- cbind(pop_crimea, res_crimea) #population Ids are added
+colnames(res_crimea)[4:22] <- bioclim_vars
+
+#removing NAs
+res_no_nas_crimea <- res_crimea[complete.cases(res_crimea),]
+res_no_nas_scaled_crimea <- as.data.frame(scale(res_no_nas_crimea[,-c(1:3)], center = T, scale = T))
+initial_res_no_nas_scaled_crimea <- res_no_nas_scaled_crimea
+# # #save(initial_res_no_nas_scaled, file = 'initial_complete_climate_no_nas_scaled.Rda')
+load('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/climate_vancouver.rda')
+# # #now to retain information on the island only
+
+climate_vancouver <- climate[inds, ]
+popnames_vancouver <- row.names(pop_vancouver)[inds]
+str(climate_vancouver)
+#how many NAs are they?
+table(complete.cases(climate))
+
+# # #
+dim(climate_vancouver)
+# # #
+class(climate_vancouver)
+
+#tidying table
+popnames_vancouver <- sort(as.character(pop_vancouver$Pop))[inds]
+clim_vancouver <- as.data.frame(climate_vancouver, row.names=popnames_vancouver)
+
+#check for NAs
+movepops <- clim_vancouver[rowSums(is.na(clim_vancouver)) == ncol(clim_vancouver),] #from the initial script from the Internet
+#or
+table(complete.cases(clim_vancouver))['TRUE'] #rows that are not NAs
+
+head(clim_vancouver)
+# # #View(clim)
+#how many points there are in total
+unique(lapply(clim_vancouver, length))
+
+#matrix to data frame transformation; probably there's a better way
+res_vancouver <- c()
+for (i in clim_vancouver) {
+  res_vancouver <- cbind(res_vancouver, i)
+}
+
+#setting bioclimatic variable names
+raw <- 'BIO1 = Annual Mean Temperature, BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp)), BIO3 = Isothermality (BIO2/BIO7) (* 100), BIO4 = Temperature Seasonality (standard deviation *100), BIO5 = Max Temperature of Warmest Month, BIO6 = Min Temperature of Coldest Month, BIO7 = Temperature Annual Range (BIO5-BIO6), BIO8 = Mean Temperature of Wettest Quarter, BIO9 = Mean Temperature of Driest Quarter, BIO10 = Mean Temperature of Warmest Quarter, BIO11 = Mean Temperature of Coldest Quarter, BIO12 = Annual Precipitation, BIO13 = Precipitation of Wettest Month, BIO14 = Precipitation of Driest Month, BIO15 = Precipitation Seasonality (Coefficient of Variation), BIO16 = Precipitation of Wettest Quarter, BIO17 = Precipitation of Driest Quarter, BIO18 = Precipitation of Warmest Quarter, BIO19 = Precipitation of Coldest Quarter'
+#raw1 <- gsub('BIO.*? = ', '', raw)
+bioclim_vars <- unlist(strsplit(raw, split = ', '))
+bioclim_vars <- substr(bioclim_vars, start = 8, 100)
+
+#to restore order
+rownames(res_vancouver) <- as.numeric(popnames_vancouver)
+res_vancouver <- cbind(pop_vancouver, res_vancouver) #population Ids are added
+colnames(res_vancouver)[4:22] <- bioclim_vars
+
+#removing NAs
+res_no_nas_vancouver <- res_vancouver[complete.cases(res_vancouver),]
+res_no_nas_scaled_vancouver <- as.data.frame(scale(res_no_nas_vancouver[,-c(1:3)], center = T, scale = T))
+initial_res_no_nas_scaled_vancouver <- res_no_nas_scaled_vancouver
+```
+#Visualization part
+
+Check up first
+```{r}
+dim(res_no_nas_crimea); dim(res_no_nas_vancouver)
+# # #View(res)
+#plots just to check the data
+
+#visualization of certain variables (colouring by isothermality)
+#vector by which the color will be set
+#vectocol <- (min(sort(unique(na.omit(res_no_nas_crimeas$`Isothermality (BIO2/BIO7) (* 100)`)))):max(sort(unique(na.omit(res_no_nas_crimea$`Isothermality (BIO2/BIO7) (* 100)`)))))
+```
+
+```{r Isothermality comparisom}
+
+
+ggplot_Isothermality_crimea <- ggplot(data = res_no_nas_scaled_crimea, mapping = aes(x = res_no_nas_crimea$Longitude, #there is no lattitude and longitude in scaled df
+                                                                              y = res_no_nas_crimea$Latitude, 
+                                                                              lwd = 1, alpha = res_no_nas_scaled_crimea$`Isothermality (BIO2/BIO7) (* 100)`, 
+                                                                              color = res_no_nas_scaled_crimea$`Isothermality (BIO2/BIO7) (* 100)`))+geom_point(show.legend = F) + ggtitle(label = 'Crimea, Isothermality (BIO 2/BIO 7)')+coord_fixed()
+
+ggplot_Isothermality_vancouver <- ggplot(data = res_no_nas_scaled_vancouver, mapping = aes(x = res_no_nas_vancouver$Longitude, 
+                                                                                    y = res_no_nas_vancouver$Latitude, 
+                                                                                    lwd = 1, alpha = res_no_nas_scaled_vancouver$`Isothermality (BIO2/BIO7) (* 100)`, 
+                                                                                    color = res_no_nas_scaled_vancouver$`Isothermality (BIO2/BIO7) (* 100)`))+geom_point(show.legend = F) + ggtitle(label = 'Vancouver, Isothermality (BIO 2/BIO 7)')+coord_fixed()
+
+grid.arrange(ggplot_Isothermality_crimea, ggplot_Isothermality_vancouver, ncol = 2)
+```
+
+```{r Precipitation of Wettest Month comparisom}
+ggplot_Precipitation_of_Wettest_Month_crimea <- ggplot(data = res_no_nas_crimea, mapping = aes(x = res_no_nas_crimea$Longitude, 
+                                                                              y = res_no_nas_crimea$Latitude, 
+                                                                              lwd = 1, alpha = res_no_nas_scaled_crimea$` Precipitation of Wettest Month`, 
+                                                                              color = res_no_nas_scaled_crimea$` Precipitation of Wettest Month`))+geom_point(show.legend = F) + ggtitle(label = 'Crimea, Precipitation of Wettest Month')+coord_fixed()
+
+ggplot_Precipitation_of_Wettest_Month_vancouver <- ggplot(data = res_no_nas_vancouver, mapping = aes(x = res_no_nas_vancouver$Longitude, 
+                                                                                    y = res_no_nas_vancouver$Latitude, 
+                                                                                    lwd = 1, alpha = res_no_nas_scaled_vancouver$`Isothermality (BIO2/BIO7) (* 100)`, 
+                                                                                    color = res_no_nas_scaled_vancouver$`Isothermality (BIO2/BIO7) (* 100)`))+geom_point(show.legend = F) + ggtitle(label = 'Vancouver,Precipitation of Wettest Month')+coord_fixed()
+
+grid.arrange(ggplot_Precipitation_of_Wettest_Month_crimea, ggplot_Precipitation_of_Wettest_Month_vancouver, ncol = 2)
+```
+
+```{r Seasonality comparisom}
+
+ggplot_Seasonality_crimea <- ggplot(data = res_no_nas_crimea, mapping = aes(x = res_no_nas_crimea$Longitude, 
+                                                                                               y = res_no_nas_crimea$Latitude, lwd = 1, alpha = res_no_nas_scaled_crimea$`Temperature Seasonality (standard deviation *100)`, 
+                                                                                               color = res_no_nas_scaled_crimea$`Temperature Seasonality (standard deviation *100)`))+geom_point(show.legend = F) + ggtitle(label = 'Crimea, Seasonality')+coord_fixed()
+
+ggplot_Seasonality_vancouver <- ggplot(data = res_no_nas_vancouver, mapping = aes(x = res_no_nas_vancouver$Longitude, 
+                                                                                                     y = res_no_nas_vancouver$Latitude, 
+                                                                                                     lwd = 1, alpha = res_no_nas_scaled_vancouver$`Temperature Seasonality (standard deviation *100)`, 
+                                                                                                     color = res_no_nas_scaled_vancouver$`Temperature Seasonality (standard deviation *100)`))+geom_point(show.legend = F) + ggtitle(label = 'Vancouver, Seasonality')+coord_fixed()
+
+grid.arrange(ggplot_Seasonality_crimea, ggplot_Seasonality_vancouver, ncol = 2)
+```
+
+
+#Exploratory analysis
+
+```{r correlation analysis (Pearson correlation coefficient)}
+
+#setting shorter names
+colnames(res_no_nas_crimea) <- paste('BIO', -2:19)
+colnames(res_no_nas_vancouver) <- paste('BIO', -2:19) 
+# # #svg('initial_corrplot.svg', height = 6, width = 6)
+#corrplot(cor((res_no_nas_crimea[,-c(1:3)]), method = 'p'), col= colorRampPalette(c("grey75", "grey15"))(10), tl.col = 1)
+
+par(mfrow = c(1, 2))
+corrplot(cor((res_no_nas_crimea[,-c(1:3)]), method = 'p'), tl.col = 1)
+corrplot(cor((res_no_nas_vancouver[,-c(1:3)]), method = 'p'), tl.col = 1)
+# # #dev.off()
+```
+
+
+```{r PCA (principal component analysis), base R}
+
+#Compute PCA in R using prcomp()
+res.pca_crimea <- prcomp(res_no_nas_crimea[,-c(1:3)], scale = TRUE) #no columns corresponding to coordinates and population names
+res.pca_vancouver <- prcomp(res_no_nas_vancouver[,-c(1:3)], scale = TRUE) #no columns corresponding to coordinates and population names
+
+#Visualize eigenvalues (scree plot). Show the percentage of variances explained by each principal component.
+ggplot_screeplot_crimea <- fviz_eig(res.pca_crimea) + ylim(c(0, 60))
+ggplot_screeplot_vancouver <- fviz_eig(res.pca_vancouver) + ylim(c(0, 60))
+
+grid.arrange(ggplot_screeplot_crimea, ggplot_screeplot_vancouver, ncol = 2)
+
+```
+
+```{r Biplots}
+
+biplot_crimea <- fviz_pca_biplot(res.pca_crimea, repel = TRUE,
+                                 col.var = "contrib", # Variables color
+                                 col.ind = 'grey75', 
+                                 fill.ind = 'grey75',
+                                 label = 'var',
+                                 alpha_ind = 2# Individuals color
+)+  scale_colour_gradient(low = "grey10", high = "black") +
+  theme(legend.position = 'none')
+
+biplot_vancouver <- fviz_pca_biplot(res.pca_vancouver, repel = TRUE,
+                                 col.var = "contrib", # Variables color
+                                 col.ind = 'grey75', 
+                                 fill.ind = 'grey75',
+                                 label = 'var',
+                                 alpha_ind = 2# Individuals color
+)+  scale_colour_gradient(low = "grey10", high = "black") +
+  theme(legend.position = 'none')
+
+grid.arrange(biplot_crimea, biplot_vancouver, ncol = 2)
+```
+
+```{r Hierarchical clusterization etc.}
+
+
+hclusted_crimea <- hclust(dist(res_no_nas_scaled_crimea), method = 'ward.D2')
+hclusted_vancouver <- hclust(dist(res_no_nas_scaled_vancouver), method = 'ward.D2')
+
+# # #svg('initial_hclust_no_numbers.svg', height = 4, width = 6)
+par(mfrow = c(1, 2),
+    mar = rep(3, 4))
+plot(hclusted_crimea, labels = F, main = "Ward's method clusterization for\n complete bioclimate data for Crimea", xaxt = 'n', xlab = '', col = 'grey60', sub ='', ylim = c(-10, 100))
+rect.hclust(hclusted_crimea, k = 5, border =  1)
+text(x = c(25, 125, 305, 440, 825), y = rep(-15,5),  as.roman(1:5), cex = 0.9)
+
+plot(hclusted_vancouver, labels = F, main = "Ward's method clusterization for\n complete bioclimate data for Crimea", xaxt = 'n', xlab = '', col = 'grey60', sub ='', ylim = c(-10, 100))
+rect.hclust(hclusted_vancouver, k = 4, border =  1)
+text(x = c(25, 125, 305, 440, 825), y = rep(-15,5),  as.roman(1:5), cex = 0.9)
+# # #dev.off()
+```
+
+```{r Cutting hclust object}
+
+cut_hclusted_crimea <- cutree(hclusted_crimea, k = 5)
+cut_hclusted_vancouver <- cutree(hclusted_vancouver, k = 4)
+
+
+map_bioclimate_crimea <- ggplot(data = res_no_nas_crimea, mapping = aes(y = res_no_nas_crimea$Latitude, 
+                                                          x = res_no_nas_crimea$Longitude, 
+                                                          lwd = 0.5, 
+                                                          color = rainbow(length(unique(cut_hclusted_crimea)))[cut_hclusted_crimea]))+
+  geom_point(show.legend = F) + ylab('Latitude') + xlab('Longitude') + 
+ggtitle(label = "Generic map") + coord_fixed()
+
+map_bioclimate_vancouver <- ggplot(data = res_no_nas_vancouver, mapping = aes(y = res_no_nas_vancouver$Latitude, 
+                                                          x = res_no_nas_vancouver$Longitude, 
+                                                          lwd = 0.5, 
+                                                          color = rainbow(length(unique(cut_hclusted_vancouver)))[cut_hclusted_vancouver]))+
+  geom_point(show.legend = F) + ylab('Latitude') + xlab('Longitude') + 
+ggtitle(label = "Generic map") + coord_fixed()
+
+grid.arrange(map_bioclimate_crimea, map_bioclimate_vancouver, ncol = 2)
+
+```
