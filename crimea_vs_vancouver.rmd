@@ -40,8 +40,8 @@ library(caret)
 Loading previously saved bioclimate data on both Crimea and Vancouver island
 ```{r}
 
-load('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/climate_crimea.rda')
-load('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/climate_vancouver.rda')
+load('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/wc2.0_2.5m_bio/climate_crimea.rda')
+load('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/wc2.0_2.5m_bio/climate_vancouver.rda')
 
 ```
 
@@ -139,7 +139,7 @@ lat_long_crimea <- expand.grid(Latitude = Latitude_crimea, Longitude = Longitude
 
 Download and unzip all relevant WorldClim geoTIFF files into a single directory.
 ```{r}
-setwd('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/')
+setwd('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/wc2.0_2.5m_bio/')
 #check the folder content
 dir()
 ```
@@ -214,7 +214,7 @@ tiffvector <- unlist(list)
 # # #    } #may take a while
 
 # # #save(climate, file = 'climate_complete_crimea_for_Orlov_Sheludkov.rda')
-load('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/climate_crimea.rda')
+load('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/wc2.0_2.5m_bio/climate_crimea.rda')
 ```
 
 #Case region II - Vancouver island
@@ -270,7 +270,7 @@ Ddownload and unzip all relevant WorldClim geoTIFF files into a single directory
 
 ```{r}
 
-setwd('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/')
+setwd('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/wc2.0_2.5m_bio/')
 #check the folder content
 dir()
 
@@ -382,7 +382,7 @@ res_no_nas_crimea <- res_crimea[complete.cases(res_crimea),]
 res_no_nas_scaled_crimea <- as.data.frame(scale(res_no_nas_crimea[,-c(1:3)], center = T, scale = T))
 initial_res_no_nas_scaled_crimea <- res_no_nas_scaled_crimea
 # # #save(initial_res_no_nas_scaled, file = 'initial_complete_climate_no_nas_scaled.Rda')
-load('/home/jane/Документы/Misha/sheludkov/wc2.0_2.5m_bio/climate_vancouver.rda')
+load('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/wc2.0_2.5m_bio/climate_vancouver.rda')
 # # #now to retain information on the island only
 
 climate_vancouver <- climate[inds, ]
@@ -563,7 +563,7 @@ text(x = c(25, 125, 305, 440, 825), y = rep(-15,5),  as.roman(1:5), cex = 0.9)
 # # #dev.off()
 ```
 
-```{r Cutting hclust object}
+```{r Cutting hclust object, eval=F}
 
 cut_hclusted_crimea <- cutree(hclusted_crimea, k = 5)
 cut_hclusted_vancouver <- cutree(hclusted_vancouver, k = 4)
