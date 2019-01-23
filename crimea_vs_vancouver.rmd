@@ -586,3 +586,13 @@ ggtitle(label = "Generic map") + coord_fixed()
 grid.arrange(map_bioclimate_crimea, map_bioclimate_vancouver, ncol = 2)
 
 ```
+
+
+#OCCURENCE DATASETS
+
+```{r Vancouver from GBIF}
+vancouver_gbif <- read.table('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/0029828-181108115102211_vancouver_daucus_carota.csv', sep = '\t', header = T)
+
+View(vancouver_gbif)
+```
+
