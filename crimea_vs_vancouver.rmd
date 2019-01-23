@@ -596,3 +596,38 @@ vancouver_gbif <- read.table('/home/jane/Документы/Misha/sheludkov/crim
 View(vancouver_gbif)
 ```
 
+```{r SpatialPoint objects type}
+
+coords_crimea <- cbind(res_no_nas_crimea$Longitude, res_no_nas_crimea$Latitude)
+coords_crimea <- coords_crimea[complete.cases(coords_crimea),]
+spdf_crimea <- SpatialPointsDataFrame(coords = coords_crimea, data = as.data.frame(coords_crimea), coords.nrs = numeric(0), proj4string = CRS(as.character(NA)), match.ID = F, bbox = NULL)
+
+
+#palette for gradual filling 
+
+rbPal <- colorRampPalette(c('red','blue'))
+
+par(mfrow = c (2,2),
+    mar = rep(0.8, 4))
+#Annual Mean Temperature
+spdf_crimea$Col_annual_mean_temperature <- rbPal(10)[as.numeric(cut(res_no_nas_crimea$`Annual Mean Temperature`,breaks = 10))]
+plot(spdf_crimea, col = spdf_crimea$Col_annual_mean_temperature, pch = 12, lwd = 4, main = 'Annual Mean Temperature')
+legend("topleft",title="Legens", legend = unique(as.numeric(cut(res_no_nas_crimea$`Annual Mean Temperature`, breaks = 10))) ,col =unique(spdf_crimea$Col_annual_mean_temperature), pch=20)
+
+#Isothermality
+spdf_crimea$Col_isothermality <- rbPal(10)[as.numeric(cut(res_no_nas_crimea$`Isothermality (BIO2/BIO7) (* 100)`,breaks = 10))]
+points(spdf_crimea, col = spdf_crimea$Col_isothermality, pch = 12, lwd = 4)
+
+#Col_max_temperature_of_warmest_month
+spdf_crimea$Col_max_temperature_of_warmest_month <- rbPal(10)[as.numeric(cut(res_no_nas_crimea$`Max Temperature of Warmest Month`,breaks = 10))]
+points(spdf_crimea, col = spdf_crimea$Col_max_temperature_of_warmest_month, pch = 12, lwd = 4)
+
+
+#Annual Precipitation
+spdf_crimea$Col_annual_precipitation <- rbPal(10)[as.numeric(cut(res_no_nas_crimea$` Annual Precipitation`,breaks = 10))]
+points(spdf_crimea, col = spdf_crimea$Col_annual_precipitation, pch = 12, lwd = 4)
+
+
+
+```
+
