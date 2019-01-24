@@ -631,3 +631,16 @@ points(spdf_crimea, col = spdf_crimea$Col_annual_precipitation, pch = 12, lwd = 
 
 ```
 
+Worldclim data as predictors 
+```{r}
+str(res_no_nas_scaled_crimea)
+worldclim_world <- dir('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/wc2.0_2.5m_bio/', pattern = '*tif')
+
+worldclim_world_raster_stack <- stack(worldclim_world)
+
+?extract()
+
+
+```
+
+
