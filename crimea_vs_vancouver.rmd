@@ -1,8 +1,10 @@
 ---
-title: "Dimensionality reduction for distance object describing settlement networks"
+title: "Data Optimization for Spatial Distribution Modeling: Crimea and Vancouver Island"
 author: "Mikhail Orlov"
 date: '6 ноября 2017 г '
 output:
+  word_document: default
+  pdf_document: default
   html_document: default
 pdf_document: default
 ---
@@ -590,13 +592,11 @@ grid.arrange(map_bioclimate_crimea, map_bioclimate_vancouver, ncol = 2)
 
 #OCCURENCE DATASETS
 
-```{r Vancouver from GBIF}
+```{r Vancouver from GBIF, eval = F}
 vancouver_gbif <- read.table('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/0029828-181108115102211_vancouver_daucus_carota.csv', sep = '\t', header = T)
 
 View(vancouver_gbif)
-```
-
-```{r SpatialPoint objects type}
+#```{r SpatialPoint objects type}
 
 coords_crimea <- cbind(res_no_nas_crimea$Longitude, res_no_nas_crimea$Latitude)
 coords_crimea <- coords_crimea[complete.cases(coords_crimea),]
@@ -629,18 +629,95 @@ points(spdf_crimea, col = spdf_crimea$Col_annual_precipitation, pch = 12, lwd = 
 
 
 
-```
+#```
 
-Worldclim data as predictors 
-```{r}
+#Worldclim data as predictors 
+#```{r}
 str(res_no_nas_scaled_crimea)
 worldclim_world <- dir('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/wc2.0_2.5m_bio/', pattern = '*tif')
 
 worldclim_world_raster_stack <- stack(worldclim_world)
 
-?extract()
 
+
+extracted_crimea <- raster(extract(x = worldclim_world_raster_stack, y = lat_long_crimea))
+dim(extracted_crimea); class(extracted_crimea)
+
+plot(extracted_crimea)
+
+#https://stackoverflow.com/questions/39988415/how-can-i-extract-data-from-a-raster-stack-based-on-a-list-of-lat-long?rq=1
+latlong <- structure(list(lon = lat_long_crimea$Longitude, lat = lat_long_crimea$Latitude, .Names = c("lon", "lat"),  class = "data.frame"))
+
+latlog_rounded <- round(latlong, digits = 2)
+
+ext<- raster::extract(worldclim_world_raster_stack, cbind(latlong$lon, latlong$lat))
+class(ext)                
 
 ```
 
+Small script for Sasha
+
+```{r}
+library(maps)
+#To determine region of interest
+crimea <- map(ylim=c(44.3, 46), xlim=c(32.5,36.6), col='gray90', fill=TRUE)
+
+#boundaries for which background data will be extracted
+crimea_x_lims <- c(32.5, 36.6) 
+crimea_y_lims <- c(44.4, 46)
+
+abline(v = crimea_x_lims)
+abline(h = crimea_y_lims)
+
+```
+
+Creating table of latitude and longitude for locations of interest
+
+```{r}
+library(maps)
+
+#boundaries for which background data will be extracted
+vancouver_x_lims <- c(-129, -123) 
+vancouver_y_lims <- c(48, 51)
+
+vancouver <- map(ylim=vancouver_y_lims, xlim=vancouver_x_lims, col='gray90', fill=TRUE)  
+
+#building polygon by vertices in order to extract precisely Vancouver island points and not other territories
+xs <- min(vancouver_x_lims) + c(5.6, 5.5, 5.1, 3.9, 3.5, 2.2, 0.5, 0.8, 3.4, 5.4, 5.8)
+ys <- min(vancouver_y_lims) + c(0.7, 0.7, 1.2, 1.95, 2.35, 2.6, 3, 1.9, 0.8, 0.2, 0.5)
+
+for (i in seq_along(xs)){
+  points(x = xs[i], y = ys[i], pch = 10)
+}
+#adding the polygon to define the area for which data will be extracted
+polygon(x = xs, y = ys, col = 'grey90')
+
+#generating the set of coordinates that spans all the plotting areas 
+
+#creating table of latitude and longitude for locations of interest
+Latitude_vancouver <- seq(from = vancouver_y_lims[1], to = vancouver_y_lims[2], by = 0.062) #approx 2'
+Longitude_vancouver <- seq(from = vancouver_x_lims[1], to = vancouver_x_lims[2], by = 0.062) #approx 2'
+lat_long_vancouver <- expand.grid(Latitude = Latitude_vancouver, Longitude = Longitude_vancouver) #making pairs of latitude and longitude
+
+#Which of these fall within the polygon?
+#Data for Vancouver hold points outside the island; those needs to be deleted
+
+inds <- which(point.in.polygon(point.x = lat_long_vancouver$Longitude, point.y = lat_long_vancouver$Latitude, pol.x = xs, pol.y = ys)==1)
+lat_long_in_polygons <- lat_long_vancouver[inds, ]
+
+dim(lat_long_in_polygons) #1541 points
+table(complete.cases(lat_long_in_polygons)) #No NAs here 
+
+
+
+#loading Bioclim database data 
+worldclim_world <- dir('/home/jane/Документы/Misha/sheludkov/crimea_vs_vancouver_sdms/wc2.0_2.5m_bio/', pattern = '*tif')
+
+worldclim_world_raster_stack <- stack(worldclim_world)
+
+dim(worldclim_world_raster_stack); class(worldclim_world_raster_stack)
+
+#how can I get a set of raster/rasterStack obejct for my region of interest exclusively subsetting by `lat_long_in_polygons` coordinates?
+
+```
 
